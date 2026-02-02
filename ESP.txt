@@ -1,0 +1,1210 @@
+print("FRZ ESP ACTIVATED!")
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local TweenService = game:GetService("TweenService")
+
+-- Wait for LocalPlayer
+local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do
+	Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+	LocalPlayer = Players.LocalPlayer
+end
+
+
+-- CONFIGURATION
+local Config = {
+	ESPEnabled = false,
+	GUIVisible = true,
+	ToggleKey = Enum.KeyCode.K,
+	GUIToggleKey = Enum.KeyCode.L,
+	HighlightStyle = "Both",
+	HighlightColor = Color3.fromRGB(255, 50, 50),
+	OutlineColor = Color3.fromRGB(255, 255, 255),
+	FillColor = Color3.fromRGB(255, 50, 50),
+	Transparency = 0.7,
+	AutoUpdate = true,
+	UpdateInterval = 5
+}
+
+local State = {
+	TrackedHighlights = {},
+	CurrentPage = "Home",
+	LastUpdate = tick(),
+	KeyListening = nil,
+	IsDragging = false,
+	DragStartPosition = nil,
+	DragStartMousePosition = nil
+}
+
+-- GUI CONSTRUCTION WITH 3D EFFECTS
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FRZ_ESP_3D"
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+screenGui.ResetOnSpawn = false
+
+-- Main window with shadow effect
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 700, 0, 570)
+mainFrame.Position = UDim2.new(0.5, -350, 0.5, -285)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+
+-- Shadow effect
+local shadow = Instance.new("Frame")
+shadow.Name = "Shadow"
+shadow.Size = UDim2.new(1, 10, 1, 10)
+shadow.Position = UDim2.new(0, -5, 0, -5)
+shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+shadow.BackgroundTransparency = 0.7
+shadow.BorderSizePixel = 0
+shadow.ZIndex = -1
+shadow.Parent = mainFrame
+
+local shadowCorner = Instance.new("UICorner")
+shadowCorner.CornerRadius = UDim.new(0, 25)
+shadowCorner.Parent = shadow
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0,16)
+mainCorner.Parent = mainFrame
+
+-- Main gradient background
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(89, 89, 125)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 22))
+})
+gradient.Rotation = -15
+gradient.Parent = mainFrame
+
+-- Header with neon effect
+local header = Instance.new("Frame")
+header.Name = "Header"
+header.Size = UDim2.new(1, 0, 0, 50)
+header.Position = UDim2.new(0, 0, 0, 0)
+header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+header.BorderSizePixel = 0
+header.Parent = mainFrame
+
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 12)
+headerCorner.Parent = header
+
+-- Header accent line
+local accentLine = Instance.new("Frame")
+accentLine.Name = "AccentLine"
+accentLine.Size = UDim2.new(1, 0, 0, 3)
+accentLine.Position = UDim2.new(0, 0, 1, -3)
+accentLine.BackgroundColor3 = Color3.fromRGB(98, 140, 255)
+accentLine.BorderSizePixel = 0
+accentLine.Parent = header
+
+local gameTitle = Instance.new("TextLabel")
+gameTitle.Name = "GameTitle"
+gameTitle.Size = UDim2.new(1, -100, 1, 0)
+gameTitle.Position = UDim2.new(0, 20, 0, 0)
+gameTitle.BackgroundTransparency = 1
+gameTitle.Text = "FRZ ESP > Loading..."
+gameTitle.Font = Enum.Font.GothamBold
+gameTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+gameTitle.TextSize = 22
+gameTitle.TextXAlignment = Enum.TextXAlignment.Left
+gameTitle.TextStrokeTransparency = 0.7
+gameTitle.TextStrokeColor3 = Color3.fromRGB(100, 180, 255)
+gameTitle.Parent = header
+
+-- Close button with 3D effect
+local closeButton = Instance.new("TextButton")
+closeButton.Name = "CloseButton"
+closeButton.Size = UDim2.new(0, 32, 0, 32)
+closeButton.Position = UDim2.new(1, -42, 0.5, -16)
+closeButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+closeButton.Text = "×"
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextSize = 22
+closeButton.Parent = header
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(1, 0)
+closeCorner.Parent = closeButton
+
+-- Hide GUI button with 3D effect
+local hideButton = Instance.new("TextButton")
+hideButton.Name = "HideButton"
+hideButton.Size = UDim2.new(0, 32, 0, 32)
+hideButton.Position = UDim2.new(1, -84, 0.5, -16)
+hideButton.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+hideButton.Text = "─"
+hideButton.Font = Enum.Font.GothamBold
+hideButton.TextColor3 = Color3.fromRGB(220, 220, 220)
+hideButton.TextSize = 20
+hideButton.Parent = header
+
+local hideCorner = Instance.new("UICorner")
+hideCorner.CornerRadius = UDim.new(1, 0)
+hideCorner.Parent = hideButton
+
+-- DRAGGING FUNCTIONALITY
+local function startDragging()
+	if not Config.GUIVisible then return end
+
+	State.IsDragging = true
+	State.DragStartPosition = mainFrame.Position
+	State.DragStartMousePosition = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+
+	TweenService:Create(header, TweenInfo.new(0.1), {
+		BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+	}):Play()
+end
+
+local function stopDragging()
+	if State.IsDragging then
+		State.IsDragging = false
+		
+		TweenService:Create(header, TweenInfo.new(0.1), {
+			BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+		}):Play()
+	end
+end
+
+local function updateDragging()
+	if State.IsDragging then
+		local currentMousePos = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+		local delta = currentMousePos - State.DragStartMousePosition
+
+		local newX = State.DragStartPosition.X.Offset + delta.X
+		local newY = State.DragStartPosition.Y.Offset + delta.Y
+
+		local screenSize = workspace.CurrentCamera.ViewportSize
+		local frameSize = mainFrame.AbsoluteSize
+
+		newX = math.clamp(newX, 0, screenSize.X - frameSize.X)
+		newY = math.clamp(newY, 0, screenSize.Y - frameSize.Y)
+
+		mainFrame.Position = UDim2.new(0, newX, 0, newY)
+	end
+end
+
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		startDragging()
+	end
+end)
+
+header.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		stopDragging()
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+		updateDragging()
+	end
+end)
+
+gameTitle.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		startDragging()
+	end
+end)
+
+gameTitle.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		stopDragging()
+	end
+end)
+
+-- CONTINUE WITH SIDEBAR AND OTHER ELEMENTS
+
+-- Sidebar with depth effect
+local sidebar = Instance.new("Frame")
+sidebar.Name = "Sidebar"
+sidebar.Size = UDim2.new(0, 190, 1, -50)
+sidebar.Position = UDim2.new(0, 0, 0, 50)
+sidebar.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
+sidebar.BorderSizePixel = 0
+sidebar.Parent = mainFrame
+
+local sidebarCorner = Instance.new("UICorner")
+sidebarCorner.CornerRadius = UDim.new(0, 12)
+sidebarCorner.Parent = sidebar
+
+-- Sidebar accent
+local sidebarAccent = Instance.new("Frame")
+sidebarAccent.Name = "SidebarAccent"
+sidebarAccent.Size = UDim2.new(0, 4, 1, 0)
+sidebarAccent.Position = UDim2.new(1, -4, 0, 0)
+sidebarAccent.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+sidebarAccent.BorderSizePixel = 0
+sidebarAccent.Parent = sidebar
+
+local sidePadding = 20
+local buttonY = 25
+
+-- Navigation buttons with 3D ef
+local function createNavButton(text, pageName)
+	local buttonContainer = Instance.new("Frame")
+	buttonContainer.Name = pageName .. "ButtonContainer"
+	buttonContainer.Size = UDim2.new(1, -sidePadding * 2, 0, 45)
+	buttonContainer.Position = UDim2.new(0, sidePadding, 0, buttonY)
+	buttonContainer.BackgroundTransparency = 1
+	buttonContainer.Parent = sidebar
+
+	local button = Instance.new("TextButton")
+	button.Name = pageName .. "Button"
+	button.Size = UDim2.new(1, 0, 1, 0)
+	button.Position = UDim2.new(0, 0, 0, 0)
+	button.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+	button.Text = text
+	button.Font = Enum.Font.GothamSemibold
+	button.TextColor3 = Color3.fromRGB(220, 220, 240)
+	button.TextSize = 16
+	button.Parent = buttonContainer
+
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0, 10)
+	buttonCorner.Parent = button
+
+	-- Button shadow
+	local buttonShadow = Instance.new("Frame")
+	buttonShadow.Size = UDim2.new(1, 4, 1, 4)
+	buttonShadow.Position = UDim2.new(0, -2, 0, -2)
+	buttonShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	buttonShadow.BackgroundTransparency = 0.8
+	buttonShadow.BorderSizePixel = 0
+	buttonShadow.ZIndex = -1
+	buttonShadow.Parent = buttonContainer
+
+	local shadowCorner = Instance.new("UICorner")
+	shadowCorner.CornerRadius = UDim.new(0, 10)
+	shadowCorner.Parent = buttonShadow
+
+	button.MouseEnter:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.2), {
+			BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+		}):Play()
+	end)
+
+	button.MouseLeave:Connect(function()
+		if State.CurrentPage ~= pageName then
+			TweenService:Create(button, TweenInfo.new(0.2), {
+				BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+			}):Play()
+		end
+	end)
+
+	button.MouseButton1Click:Connect(function()
+		State.CurrentPage = pageName
+		updatePages()
+
+		-- Update button colors
+		for _, btnContainer in ipairs(sidebar:GetChildren()) do
+			if btnContainer:IsA("Frame") and btnContainer.Name:match("ButtonContainer$") then
+				local btn = btnContainer:FindFirstChildWhichIsA("TextButton")
+				if btn then
+					if btn.Name == pageName .. "Button" then
+						-- Active button
+						TweenService:Create(btn, TweenInfo.new(0.2), {
+							BackgroundColor3 = Color3.fromRGB(70, 70, 90),
+							TextColor3 = Color3.fromRGB(100, 200, 255)
+						}):Play()
+					else
+						-- Inactive buttons
+						TweenService:Create(btn, TweenInfo.new(0.2), {
+							BackgroundColor3 = Color3.fromRGB(40, 40, 55),
+							TextColor3 = Color3.fromRGB(220, 220, 240)
+						}):Play()
+					end
+				end
+			end
+		end
+	end)
+
+	buttonY = buttonY + 55
+	return buttonContainer
+end
+
+local homeButton = createNavButton("🏠 Home", "Home")
+local espButton = createNavButton("🎯 ESP Settings", "ESP")
+
+-- Content area with 3D effect
+local contentFrame = Instance.new("Frame")
+contentFrame.Name = "ContentFrame"
+contentFrame.Size = UDim2.new(1, -190, 1, -50)
+contentFrame.Position = UDim2.new(0, 190, 0, 50)
+contentFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 42)
+contentFrame.BorderSizePixel = 0
+contentFrame.Parent = mainFrame
+
+local contentCorner = Instance.new("UICorner")
+contentCorner.CornerRadius = UDim.new(0, 12)
+contentCorner.Parent = contentFrame
+
+-- Player info panel with 3D effect
+local playerPanel = Instance.new("Frame")
+playerPanel.Name = "PlayerPanel"
+playerPanel.Size = UDim2.new(1, -30, 0, 95)
+playerPanel.Position = UDim2.new(0, 15, 1, -110)
+playerPanel.BackgroundColor3 = Color3.fromRGB(35, 35, 48)
+playerPanel.BorderSizePixel = 0
+playerPanel.ClipsDescendants = true
+playerPanel.Parent = sidebar
+
+local playerCorner = Instance.new("UICorner")
+playerCorner.CornerRadius = UDim.new(0, 10)
+playerCorner.Parent = playerPanel
+
+-- Player panel shadow
+local playerShadow = Instance.new("Frame")
+playerShadow.Size = UDim2.new(1, 4, 1, 4)
+playerShadow.Position = UDim2.new(0, -2, 0, -2)
+playerShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+playerShadow.BackgroundTransparency = 0.7
+playerShadow.BorderSizePixel = 0
+playerShadow.ZIndex = -1
+playerShadow.Parent = playerPanel
+
+local playerShadowCorner = Instance.new("UICorner")
+playerShadowCorner.CornerRadius = UDim.new(0, 10)
+playerShadowCorner.Parent = playerShadow
+
+local avatarImage = Instance.new("ImageLabel")
+avatarImage.Name = "Avatar"
+avatarImage.Size = UDim2.new(0, 55, 0, 55)
+avatarImage.Position = UDim2.new(0, 15, 0, 15)
+avatarImage.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+avatarImage.BorderSizePixel = 0
+avatarImage.Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150"
+avatarImage.Parent = playerPanel
+
+local avatarCorner = Instance.new("UICorner")
+avatarCorner.CornerRadius = UDim.new(1, 0)
+avatarCorner.Parent = avatarImage
+
+local avatarStroke = Instance.new("UIStroke")
+avatarStroke.Parent = avatarImage
+avatarStroke.Color = Color3.fromRGB(100, 180, 255)
+avatarStroke.Thickness = 2
+
+local strokeGradient = Instance.new("UIGradient")
+strokeGradient.Parent = avatarStroke
+strokeGradient.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0,0),
+	NumberSequenceKeypoint.new(0.4, 1),
+	NumberSequenceKeypoint.new(0.6, 1),
+	NumberSequenceKeypoint.new(1, 0)
+})
+
+coroutine.wrap(function()
+	while true do
+		strokeGradient.Rotation = (strokeGradient.Rotation + 5) % 360
+		wait(0.03)
+	end
+end)()
+
+-- Avatar gradient border
+local avatarBorder = Instance.new("Frame")
+avatarBorder.Size = UDim2.new(1, 2, 1, 2)
+avatarBorder.Position = UDim2.new(0, -1, 0, -1)
+avatarBorder.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+avatarBorder.BorderSizePixel = 0
+avatarBorder.ZIndex = -1
+avatarBorder.Parent = avatarImage
+
+local avatarBorderCorner = Instance.new("UICorner")
+avatarBorderCorner.CornerRadius = UDim.new(1, 0)
+avatarBorderCorner.Parent = avatarBorder
+
+local avatarCorner = Instance.new("UICorner")
+avatarCorner.CornerRadius = UDim.new(1, 0)
+avatarCorner.Parent = avatarImage
+
+-- Player info text
+local nameContainer = Instance.new("Frame")
+nameContainer.Name = "NameContainer"
+nameContainer.Size = UDim2.new(1, -85, 1, -30)
+nameContainer.Position = UDim2.new(0, 80, 0, 15)
+nameContainer.BackgroundTransparency = 1
+nameContainer.ClipsDescendants = true
+nameContainer.Parent = playerPanel
+
+local playerName = Instance.new("TextLabel")
+playerName.Name = "PlayerName"
+playerName.Size = UDim2.new(1, 0, 0.5, 0)
+playerName.Position = UDim2.new(0, 0, 0, 0)
+playerName.BackgroundTransparency = 1
+playerName.Text = LocalPlayer.DisplayName
+playerName.Font = Enum.Font.GothamSemibold
+playerName.TextColor3 = Color3.fromRGB(255, 255, 255)
+playerName.TextSize = 15
+playerName.TextXAlignment = Enum.TextXAlignment.Left
+playerName.TextTruncate = Enum.TextTruncate.AtEnd
+playerName.TextStrokeTransparency = 0.8
+playerName.Parent = nameContainer
+
+local displayName = Instance.new("TextLabel")
+displayName.Name = "DisplayName"
+displayName.Size = UDim2.new(1, 0, 0.5, 0)
+displayName.Position = UDim2.new(0, 0, 0.5, 0)
+displayName.BackgroundTransparency = 1
+displayName.Text = "@" .. LocalPlayer.Name
+displayName.Font = Enum.Font.Gotham
+displayName.TextColor3 = Color3.fromRGB(200, 200, 220)
+displayName.TextSize = 13
+displayName.TextXAlignment = Enum.TextXAlignment.Left
+displayName.TextTruncate = Enum.TextTruncate.AtEnd
+displayName.Parent = nameContainer
+
+-- Pages
+local pages = {}
+
+-- Home Page
+local homePage = Instance.new("Frame")
+homePage.Name = "HomePage"
+homePage.Size = UDim2.new(1, 0, 1, 0)
+homePage.BackgroundTransparency = 1
+homePage.Visible = true
+homePage.Parent = contentFrame
+pages["Home"] = homePage
+
+local homeTitle = Instance.new("TextLabel")
+homeTitle.Name = "HomeTitle"
+homeTitle.Size = UDim2.new(1, -40, 0, 60)
+homeTitle.Position = UDim2.new(0, 20, 0, 20)
+homeTitle.BackgroundTransparency = 1
+homeTitle.Text = "FRZ ESP System v2.3"
+homeTitle.Font = Enum.Font.GothamBold
+homeTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+homeTitle.TextSize = 34
+homeTitle.TextStrokeTransparency = 0.7
+homeTitle.TextStrokeColor3 = Color3.fromRGB(100, 180, 255)
+homeTitle.Parent = homePage
+
+local infoContainer = Instance.new("Frame")
+infoContainer.Name = "InfoContainer"
+infoContainer.Size = UDim2.new(1, -40, 0, 380)
+infoContainer.Position = UDim2.new(0, 20, 0, 100)
+infoContainer.BackgroundColor3 = Color3.fromRGB(35, 35, 48)
+infoContainer.BorderSizePixel = 0
+infoContainer.Parent = homePage
+
+local infoCorner = Instance.new("UICorner")
+infoCorner.CornerRadius = UDim.new(0, 10)
+infoCorner.Parent = infoContainer
+
+local infoShadow = Instance.new("Frame")
+infoShadow.Size = UDim2.new(1, 4, 1, 4)
+infoShadow.Position = UDim2.new(0, -2, 0, -2)
+infoShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+infoShadow.BackgroundTransparency = 0.7
+infoShadow.BorderSizePixel = 0
+infoShadow.ZIndex = -1
+infoShadow.Parent = infoContainer
+
+local infoShadowCorner = Instance.new("UICorner")
+infoShadowCorner.CornerRadius = UDim.new(0, 10)
+infoShadowCorner.Parent = infoShadow
+
+local infoText = Instance.new("TextLabel")
+infoText.Name = "InfoText"
+infoText.Size = UDim2.new(1, -20, 1, -20)
+infoText.Position = UDim2.new(0, 10, 0, 10)
+infoText.BackgroundTransparency = 1
+infoText.Text = [[✨ FRZ ESP System v1.0 ✨
+
+🎯 Features:
+• Toggle ESP with K key
+• Show/Hide GUI with L key
+• Customizable highlight colors
+• Three highlight styles
+• Auto-update system
+• Player information panel
+• Color palette picker
+• Outline color customization
+• Enhanced 3D UI Design
+• Draggable window (drag header)
+
+🎮 Controls:
+K - Toggle ESP On/Off (default)
+L - Show/Hide GUI (default)
+
+🔧 Buttons:
+─ - Hide GUI temporarily
+× - Full shutdown (needs script restart)
+
+🌈 ESP Modes:
+Outline - Only outline visible
+Fill - Only fill color visible
+Both - Outline and fill visible]]
+infoText.Font = Enum.Font.Gotham
+infoText.TextColor3 = Color3.fromRGB(220, 220, 240)
+infoText.TextSize = 18
+infoText.TextXAlignment = Enum.TextXAlignment.Left
+infoText.TextYAlignment = Enum.TextYAlignment.Top
+infoText.TextWrapped = true
+infoText.Parent = infoContainer
+
+-- ESP Settings Page
+local espPage = Instance.new("Frame")
+espPage.Name = "ESPPage"
+espPage.Size = UDim2.new(1, 0, 1, 0)
+espPage.BackgroundTransparency = 1
+espPage.Visible = false
+espPage.Parent = contentFrame
+pages["ESP"] = espPage
+
+-- Settings title
+local settingsTitle = Instance.new("TextLabel")
+settingsTitle.Name = "SettingsTitle"
+settingsTitle.Size = UDim2.new(1, -40, 0, 40)
+settingsTitle.Position = UDim2.new(0, 20, 0, 15)
+settingsTitle.BackgroundTransparency = 1
+settingsTitle.Text = "🎯 ESP Settings"
+settingsTitle.Font = Enum.Font.GothamBold
+settingsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+settingsTitle.TextSize = 26
+settingsTitle.TextStrokeTransparency = 0.8
+settingsTitle.TextStrokeColor3 = Color3.fromRGB(100, 180, 255)
+settingsTitle.Parent = espPage
+
+-- Container for settings
+local settingsContainer = Instance.new("Frame")
+settingsContainer.Name = "SettingsContainer"
+settingsContainer.Size = UDim2.new(1, -40, 1, -70)
+settingsContainer.Position = UDim2.new(0, 20, 0, 65)
+settingsContainer.BackgroundTransparency = 1
+settingsContainer.Parent = espPage
+
+local settingY = 0
+local toggleButtons = {}
+
+-- Helper function to create settings with 3D effect
+local function createSetting(parent, labelText, controlType, options)
+	local container = Instance.new("Frame")
+	container.Size = UDim2.new(1, 0, 0, 40)
+	container.Position = UDim2.new(0, 0, 0, settingY)
+	container.BackgroundTransparency = 1
+	container.Parent = parent
+
+	-- Setting background
+	local settingBg = Instance.new("Frame")
+	settingBg.Size = UDim2.new(1, 0, 1, 0)
+	settingBg.Position = UDim2.new(0, 0, 0, 0)
+	settingBg.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+	settingBg.BorderSizePixel = 0
+	settingBg.Parent = container
+
+	local settingCorner = Instance.new("UICorner")
+	settingCorner.CornerRadius = UDim.new(0, 8)
+	settingCorner.Parent = settingBg
+
+	-- Setting shadow
+	local settingShadow = Instance.new("Frame")
+	settingShadow.Size = UDim2.new(1, 4, 1, 4)
+	settingShadow.Position = UDim2.new(0, -2, 0, -2)
+	settingShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	settingShadow.BackgroundTransparency = 0.7
+	settingShadow.BorderSizePixel = 0
+	settingShadow.ZIndex = -1
+	settingShadow.Parent = container
+
+	local settingShadowCorner = Instance.new("UICorner")
+	settingShadowCorner.CornerRadius = UDim.new(0, 8)
+	settingShadowCorner.Parent = settingShadow
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0.5, -10, 1, 0)
+	label.Position = UDim2.new(0, 15, 0, 0)
+	label.BackgroundTransparency = 1
+	label.Text = labelText
+	label.Font = Enum.Font.GothamSemibold
+	label.TextColor3 = Color3.fromRGB(240, 240, 255)
+	label.TextSize = 15  -- Уменьшен размер текста
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = container
+
+	settingY = settingY + 50
+	if controlType == "Toggle" then
+		local toggleFrame = Instance.new("Frame")
+		toggleFrame.Size = UDim2.new(0, 60, 0, 28)
+		toggleFrame.Position = UDim2.new(1, -70, 0.5, -14)
+		toggleFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+		toggleFrame.BorderSizePixel = 0
+		toggleFrame.Parent = container
+
+		local toggleCorner = Instance.new("UICorner")
+		toggleCorner.CornerRadius = UDim.new(1, 0)
+		toggleCorner.Parent = toggleFrame
+
+		local toggleButton = Instance.new("TextButton")
+		toggleButton.Size = UDim2.new(0, 24, 0, 24)
+		toggleButton.Position = UDim2.new(0, 2, 0, 2)
+		toggleButton.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+		toggleButton.Text = ""
+		toggleButton.Parent = toggleFrame
+
+		local buttonCorner = Instance.new("UICorner")
+		buttonCorner.CornerRadius = UDim.new(1, 0)
+		buttonCorner.Parent = toggleButton
+
+		-- Make the entire toggle frame clickable
+		local clickableArea = Instance.new("TextButton")
+		clickableArea.Size = UDim2.new(1, 0, 1, 0)
+		clickableArea.Position = UDim2.new(0, 0, 0, 0)
+		clickableArea.BackgroundTransparency = 1
+		clickableArea.Text = ""
+		clickableArea.ZIndex = 10
+		clickableArea.Parent = toggleFrame
+
+		local function updateToggle()
+			local value = options.getValue()
+			if value then
+				TweenService:Create(toggleButton, TweenInfo.new(0.3), {
+					Position = UDim2.new(1, -26, 0, 2),
+					BackgroundColor3 = Color3.fromRGB(80, 255, 80)
+				}):Play()
+				toggleFrame.BackgroundColor3 = Color3.fromRGB(50, 70, 50)
+			else
+				TweenService:Create(toggleButton, TweenInfo.new(0.3), {
+					Position = UDim2.new(0, 2, 0, 2),
+					BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+				}):Play()
+				toggleFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+			end
+		end
+
+		updateToggle()
+
+		-- Connect click to both button and area
+		local function toggleFunction()
+			options.toggle()
+			updateToggle()
+			options.onChange()
+		end
+
+		toggleButton.MouseButton1Click:Connect(toggleFunction)
+		clickableArea.MouseButton1Click:Connect(toggleFunction)
+
+		toggleButtons[options] = {button = toggleButton, update = updateToggle}
+		return container
+	elseif controlType == "Dropdown" then
+		local dropdown = Instance.new("TextButton")
+		dropdown.Size = UDim2.new(0, 170, 0, 34)
+		dropdown.Position = UDim2.new(1, -180, 0.5, -17)
+		dropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+		dropdown.Text = options.getValue()
+		dropdown.Font = Enum.Font.Gotham
+		dropdown.TextColor3 = Color3.fromRGB(255, 255, 255)
+		dropdown.TextSize = 13
+		dropdown.Parent = container
+
+		local dropdownCorner = Instance.new("UICorner")
+		dropdownCorner.CornerRadius = UDim.new(0, 8)
+		dropdownCorner.Parent = dropdown
+
+		-- Dropdown shadow
+		local dropdownShadow = Instance.new("Frame")
+		dropdownShadow.Size = UDim2.new(1, 4, 1, 4)
+		dropdownShadow.Position = UDim2.new(0, -2, 0, -2)
+		dropdownShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+		dropdownShadow.BackgroundTransparency = 0.7
+		dropdownShadow.BorderSizePixel = 0
+		dropdownShadow.ZIndex = -1
+		dropdownShadow.Parent = dropdown
+
+		local dropdownShadowCorner = Instance.new("UICorner")
+		dropdownShadowCorner.CornerRadius = UDim.new(0, 8)
+		dropdownShadowCorner.Parent = dropdownShadow
+
+		dropdown.MouseButton1Click:Connect(function()
+			local current = options.getValue()
+			local index = 1
+			for i, opt in ipairs(options.options) do
+				if opt == current then
+					index = i
+					break
+				end
+			end
+			local nextIndex = (index % #options.options) + 1
+			options.setValue(options.options[nextIndex])
+			dropdown.Text = options.getValue()
+			options.onChange()
+		end)
+
+		return container
+	elseif controlType == "Keybind" then
+		local keyButton = Instance.new("TextButton")
+		keyButton.Size = UDim2.new(0, 100, 0, 34)
+		keyButton.Position = UDim2.new(1, -110, 0.5, -17)
+		keyButton.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+		keyButton.Text = tostring(options.getValue().Name):gsub("KeyCode.", "")
+		keyButton.Font = Enum.Font.GothamBold
+		keyButton.TextColor3 = Color3.fromRGB(100, 200, 255)
+		keyButton.TextSize = 13  -- Уменьшен размер текста
+		keyButton.Parent = container
+
+		local keyCorner = Instance.new("UICorner")
+		keyCorner.CornerRadius = UDim.new(0, 8)
+		keyCorner.Parent = keyButton
+
+		-- Keybind shadow
+		local keyShadow = Instance.new("Frame")
+		keyShadow.Size = UDim2.new(1, 4, 1, 4)
+		keyShadow.Position = UDim2.new(0, -2, 0, -2)
+		keyShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+		keyShadow.BackgroundTransparency = 0.7
+		keyShadow.BorderSizePixel = 0
+		keyShadow.ZIndex = -1
+		keyShadow.Parent = keyButton
+
+		local keyShadowCorner = Instance.new("UICorner")
+		keyShadowCorner.CornerRadius = UDim.new(0, 8)
+		keyShadowCorner.Parent = keyShadow
+
+		keyButton.MouseButton1Click:Connect(function()
+			State.KeyListening = options
+			keyButton.Text = "..."
+			keyButton.BackgroundColor3 = Color3.fromRGB(70, 70, 85)
+		end)
+
+		return container
+	end
+end
+
+-- Function to create color palette picker with 3D effect
+local function createColorPalette(parent, labelText, colorVar, onChange)
+	local container = Instance.new("Frame")
+	container.Size = UDim2.new(1, 0, 0, 70)
+	container.Position = UDim2.new(0, 0, 0, settingY)
+	container.BackgroundTransparency = 1
+	container.Parent = parent
+
+	-- Palette background
+	local paletteBg = Instance.new("Frame")
+	paletteBg.Size = UDim2.new(1, 0, 1, 0)
+	paletteBg.Position = UDim2.new(0, 0, 0, 0)
+	paletteBg.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+	paletteBg.BorderSizePixel = 0
+	paletteBg.Parent = container
+
+	local paletteCorner = Instance.new("UICorner")
+	paletteCorner.CornerRadius = UDim.new(0, 10)
+	paletteCorner.Parent = paletteBg
+
+	-- Palette shadow
+	local paletteShadow = Instance.new("Frame")
+	paletteShadow.Size = UDim2.new(1, 4, 1, 4)
+	paletteShadow.Position = UDim2.new(0, -2, 0, -2)
+	paletteShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	paletteShadow.BackgroundTransparency = 0.7
+	paletteShadow.BorderSizePixel = 0
+	paletteShadow.ZIndex = -1
+	paletteShadow.Parent = container
+
+	local paletteShadowCorner = Instance.new("UICorner")
+	paletteShadowCorner.CornerRadius = UDim.new(0, 10)
+	paletteShadowCorner.Parent = paletteShadow
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -20, 0, 20)
+	label.Position = UDim2.new(0, 15, 0, 8)
+	label.BackgroundTransparency = 1
+	label.Text = labelText
+	label.Font = Enum.Font.GothamSemibold
+	label.TextColor3 = Color3.fromRGB(240, 240, 255)
+	label.TextSize = 15
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = container
+
+	-- Color options with 3D effect
+	local colorOptions = {
+		{Name = "Red", Color = Color3.fromRGB(255, 70, 70)},
+		{Name = "Green", Color = Color3.fromRGB(70, 255, 70)},
+		{Name = "Blue", Color = Color3.fromRGB(70, 170, 255)},
+		{Name = "Purple", Color = Color3.fromRGB(190, 90, 255)},
+		{Name = "Yellow", Color = Color3.fromRGB(255, 255, 70)},
+		{Name = "Cyan", Color = Color3.fromRGB(70, 255, 255)},
+		{Name = "White", Color = Color3.fromRGB(255, 255, 255)},
+		{Name = "Orange", Color = Color3.fromRGB(255, 160, 70)},
+		{Name = "Pink", Color = Color3.fromRGB(255, 110, 210)},
+		{Name = "Black", Color = Color3.fromRGB(40, 40, 40)}
+	}
+
+	local colorX = 15
+	local colorY = 32
+
+	for i = 1, 10 do
+		local colorButton = Instance.new("TextButton")
+		colorButton.Size = UDim2.new(0, 28, 0, 28)
+		colorButton.Position = UDim2.new(0, colorX, 0, colorY)
+		colorButton.BackgroundColor3 = colorOptions[i].Color
+		colorButton.Text = ""
+		colorButton.AnchorPoint = Vector2.new(0.5, 0.5)
+		colorButton.Parent = container
+
+		colorButton.Position = UDim2.new(0, colorX + 14, 0, colorY + 14)
+
+		local colorCorner = Instance.new("UICorner")
+		colorCorner.CornerRadius = UDim.new(0, 6)
+		colorCorner.Parent = colorButton
+
+		-- Color button shadow
+		local colorShadow = Instance.new("Frame")
+		colorShadow.Size = UDim2.new(1, 3, 1, 3)
+		colorShadow.Position = UDim2.new(0, -1.5, 0, -1.5)
+		colorShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+		colorShadow.BackgroundTransparency = 0.6
+		colorShadow.BorderSizePixel = 0
+		colorShadow.ZIndex = -1
+		colorShadow.Parent = colorButton
+
+		local colorShadowCorner = Instance.new("UICorner")
+		colorShadowCorner.CornerRadius = UDim.new(0, 6)
+		colorShadowCorner.Parent = colorShadow
+
+		-- Hover effect с AnchorPoint
+		colorButton.MouseEnter:Connect(function()
+			TweenService:Create(colorButton, TweenInfo.new(0.2), {
+				Size = UDim2.new(0, 32, 0, 32)
+			}):Play()
+		end)
+
+		colorButton.MouseLeave:Connect(function()
+			TweenService:Create(colorButton, TweenInfo.new(0.2), {
+				Size = UDim2.new(0, 28, 0, 28)
+			}):Play()
+		end)
+
+		colorButton.MouseButton1Click:Connect(function()
+			if onChange then onChange(colorOptions[i].Color) end
+			updateAllHighlights()
+		end)
+
+		colorX = colorX + 33
+	end
+
+	settingY = settingY + 85
+	return container
+end
+
+-- ESP Toggle
+local espToggleOptions = {
+	getValue = function() return Config.ESPEnabled end,
+	toggle = function() 
+		Config.ESPEnabled = not Config.ESPEnabled 
+		if Config.ESPEnabled then
+			enableESP()
+		else
+			disableESP()
+		end
+		updateAllHighlights()
+	end,
+	onChange = function() end
+}
+
+createSetting(settingsContainer, "ESP Enabled", "Toggle", espToggleOptions)
+
+-- Highlight Style
+createSetting(settingsContainer, "Highlight Style", "Dropdown", {
+	options = {"Outline", "Fill", "Both"},
+	getValue = function() return Config.HighlightStyle end,
+	setValue = function(value) Config.HighlightStyle = value end,
+	onChange = function() updateAllHighlights() end
+})
+
+-- Highlight Color Picker
+createColorPalette(settingsContainer, "Highlight Color", Config.HighlightColor, function(color)
+	Config.HighlightColor = color
+	Config.FillColor = color
+	updateAllHighlights()
+end)
+
+-- Outline Color Picker
+createColorPalette(settingsContainer, "Outline Color", Config.OutlineColor, function(color)
+	Config.OutlineColor = color
+	updateAllHighlights()
+end)
+
+-- ESP Toggle Key
+local espKeyOptions = {
+	getValue = function() return Config.ToggleKey end,
+	setValue = function(value) Config.ToggleKey = value end,
+	onChange = function() end
+}
+createSetting(settingsContainer, "ESP Toggle Key", "Keybind", espKeyOptions)
+
+-- GUI Toggle Key
+local guiKeyOptions = {
+	getValue = function() return Config.GUIToggleKey end,
+	setValue = function(value) Config.GUIToggleKey = value end,
+	onChange = function() end
+}
+createSetting(settingsContainer, "GUI Toggle Key", "Keybind", guiKeyOptions)
+
+-- Auto Update Toggle
+createSetting(settingsContainer, "Auto Update", "Toggle", {
+	getValue = function() return Config.AutoUpdate end,
+	toggle = function() Config.AutoUpdate = not Config.AutoUpdate end,
+	onChange = function() end
+})
+
+-- ESP FUNCTIONS
+function createHighlight(character)
+	if State.TrackedHighlights[character] then
+		State.TrackedHighlights[character]:Destroy()
+	end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "F_R_Z"
+	highlight.Adornee = character
+
+	-- Apply style
+	if Config.HighlightStyle == "Outline" then
+		highlight.OutlineTransparency = 0
+		highlight.FillTransparency = 1
+	elseif Config.HighlightStyle == "Fill" then
+		highlight.OutlineTransparency = 1
+		highlight.FillTransparency = Config.Transparency
+	else -- "Both"
+		highlight.OutlineTransparency = 0
+		highlight.FillTransparency = Config.Transparency
+	end
+
+	highlight.OutlineColor = Config.OutlineColor
+	highlight.FillColor = Config.HighlightColor
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = character
+
+	State.TrackedHighlights[character] = highlight
+	return highlight
+end
+
+function enableESP()
+	for _, player in pairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			createHighlight(player.Character)
+		end
+	end
+end
+
+function disableESP()
+	for character, highlight in pairs(State.TrackedHighlights) do
+		if highlight then
+			highlight:Destroy()
+		end
+	end
+	State.TrackedHighlights = {}
+end
+
+function updateAllHighlights()
+	if not Config.ESPEnabled then return end
+
+	for character, highlight in pairs(State.TrackedHighlights) do
+		if highlight and highlight.Parent then
+			-- Update style
+			if Config.HighlightStyle == "Outline" then
+				highlight.OutlineTransparency = 0
+				highlight.FillTransparency = 1
+			elseif Config.HighlightStyle == "Fill" then
+				highlight.OutlineTransparency = 1
+				highlight.FillTransparency = Config.Transparency
+			else -- "Both"
+				highlight.OutlineTransparency = 0
+				highlight.FillTransparency = Config.Transparency
+			end
+
+			highlight.OutlineColor = Config.OutlineColor
+			highlight.FillColor = Config.HighlightColor
+		end
+	end
+end
+
+function updateToggleButtons()
+	for options, data in pairs(toggleButtons) do
+		if data and data.update then
+			data.update()
+		end
+	end
+end
+
+function updatePages()
+	for pageName, page in pairs(pages) do
+		page.Visible = (State.CurrentPage == pageName)
+	end
+end
+
+function getGameTitle()
+	local success, result = pcall(function()
+		local placeId = game.PlaceId
+		if placeId > 0 then
+			local info = MarketplaceService:GetProductInfo(placeId)
+			return info.Name
+		end
+		return "Unknown Game"
+	end)
+
+	return success and result or "Private Server"
+end
+
+function updateGameTitle()
+	gameTitle.Text = "FRZ ESP > " .. getGameTitle()
+end
+
+function shutdownClient()
+	-- Hide GUI
+	mainFrame.Visible = false
+	Config.GUIVisible = false
+
+	-- Disable ESP
+	Config.ESPEnabled = false
+	disableESP()
+
+	-- Destroy GUI completely
+	screenGui:Destroy()
+
+	print("[FRZ ESP] Client shut down completely. Restart script to restore.")
+end
+
+-- BUTTON EVENTS WITH 3D EFFECTS
+hideButton.MouseEnter:Connect(function()
+	TweenService:Create(hideButton, TweenInfo.new(0.2), {
+		Size = UDim2.new(0, 36, 0, 36),
+		Position = UDim2.new(1, -88, 0.5, -18),
+		BackgroundColor3 = Color3.fromRGB(70, 70, 90)
+	}):Play()
+end)
+
+hideButton.MouseLeave:Connect(function()
+	TweenService:Create(hideButton, TweenInfo.new(0.2), {
+		Size = UDim2.new(0, 32, 0, 32),
+		Position = UDim2.new(1, -84, 0.5, -16),
+		BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+	}):Play()
+end)
+
+hideButton.MouseButton1Click:Connect(function()
+	Config.GUIVisible = false
+	mainFrame.Visible = false
+	print("[FRZ ESP] GUI hidden. Press L to show again.")
+end)
+
+closeButton.MouseEnter:Connect(function()
+	TweenService:Create(closeButton, TweenInfo.new(0.2), {
+		Size = UDim2.new(0, 36, 0, 36),
+		Position = UDim2.new(1, -46, 0.5, -18),
+		BackgroundColor3 = Color3.fromRGB(255, 90, 90)
+	}):Play()
+end)
+
+closeButton.MouseLeave:Connect(function()
+	TweenService:Create(closeButton, TweenInfo.new(0.2), {
+		Size = UDim2.new(0, 32, 0, 32),
+		Position = UDim2.new(1, -42, 0.5, -16),
+		BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+	}):Play()
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+	shutdownClient()
+end)
+
+-- EVENT HANDLERS=
+local function onPlayerAdded(player)
+	if player ~= LocalPlayer then
+		player.CharacterAdded:Connect(function(character)
+			if Config.ESPEnabled then
+				wait(0.5)
+				createHighlight(character)
+			end
+		end)
+
+		if player.Character and Config.ESPEnabled then
+			createHighlight(player.Character)
+		end
+	end
+end
+
+local function onPlayerRemoving(player)
+	if player.Character and State.TrackedHighlights[player.Character] then
+		State.TrackedHighlights[player.Character]:Destroy()
+		State.TrackedHighlights[player.Character] = nil
+	end
+end
+
+-- INPUT HANDLING
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	-- Key listening for settings
+	if State.KeyListening and input.UserInputType == Enum.UserInputType.Keyboard then
+		local options = State.KeyListening
+		options.setValue(input.KeyCode)
+
+		-- Update button text
+		for _, child in pairs(settingsContainer:GetChildren()) do
+			if child:FindFirstChild("TextButton") then
+				local btn = child:FindFirstChild("TextButton")
+				if btn and btn.Text == "..." then
+					btn.Text = tostring(input.KeyCode.Name):gsub("KeyCode.", "")
+					btn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+				end
+			end
+		end
+
+		options.onChange()
+		State.KeyListening = nil
+		return
+	end
+
+	-- ESP Toggle
+	if input.KeyCode == Config.ToggleKey then
+		Config.ESPEnabled = not Config.ESPEnabled
+		if Config.ESPEnabled then
+			enableESP()
+		else
+			disableESP()
+		end
+		updateToggleButtons()
+		print("[FRZ ESP] ESP " .. (Config.ESPEnabled and "Enabled" or "Disabled"))
+	end
+
+	-- GUI Toggle
+	if input.KeyCode == Config.GUIToggleKey then
+		Config.GUIVisible = not Config.GUIVisible
+		mainFrame.Visible = Config.GUIVisible
+		print("[FRZ ESP] GUI " .. (Config.GUIVisible and "Shown" or "Hidden"))
+	end
+end)
+
+-- Initialize players
+for _, player in pairs(Players:GetPlayers()) do
+	onPlayerAdded(player)
+end
+
+-- Connect events
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(onPlayerRemoving)
+
+-- Update game title
+updateGameTitle()
+
+-- Update pages initially
+updatePages()
+
+-- Auto-update loop
+RunService.Heartbeat:Connect(function()
+	if Config.AutoUpdate and Config.ESPEnabled then
+		if tick() - State.LastUpdate >= Config.UpdateInterval then
+			State.LastUpdate = tick()
+			enableESP() -- Refresh all highlights
+		end
+	end
+end)
