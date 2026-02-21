@@ -1,5 +1,3 @@
-print("FRZ ESP ACTIVATED!")
-
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -1069,8 +1067,6 @@ function shutdownClient()
 
 	-- Destroy GUI completely
 	screenGui:Destroy()
-
-	print("[FRZ ESP] Client shut down completely. Restart script to restore.")
 end
 
 -- BUTTON EVENTS WITH 3D EFFECTS
@@ -1093,7 +1089,6 @@ end)
 hideButton.MouseButton1Click:Connect(function()
 	Config.GUIVisible = false
 	mainFrame.Visible = false
-	print("[FRZ ESP] GUI hidden. Press L to show again.")
 end)
 
 closeButton.MouseEnter:Connect(function()
@@ -1173,14 +1168,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			disableESP()
 		end
 		updateToggleButtons()
-		print("[FRZ ESP] ESP " .. (Config.ESPEnabled and "Enabled" or "Disabled"))
 	end
 
 	-- GUI Toggle
 	if input.KeyCode == Config.GUIToggleKey then
 		Config.GUIVisible = not Config.GUIVisible
 		mainFrame.Visible = Config.GUIVisible
-		print("[FRZ ESP] GUI " .. (Config.GUIVisible and "Shown" or "Hidden"))
 	end
 end)
 
@@ -1208,3 +1201,4 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 end)
+
