@@ -1,0 +1,817 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+
+local function generateInterfaceName()
+	local names = {
+		"PlayerInventoryGui", "ShopSystemUI", "PlayerStatsGui", 
+		"MainMenuOverlay", "TradeMenuUI", "QuestTrackerGui", 
+		"SettingsPanelUI", "CharacterCustomizer", "NotificationSystem"
+	}
+	return names[math.random(1, #names)] .. "_" .. tostring(math.random(100, 999))
+end
+
+local Config = {
+	ESPEnabled = false,
+	GUIVisible = true,
+	ToggleKey = Enum.KeyCode.K,
+	GUIToggleKey = Enum.KeyCode.L,
+
+	ESPType = "Highlight", -- "Highlight", "SelectionBox"
+	HighlightStyle = "Both",
+
+	ShowInfo = true,
+	ShowDistance = true,
+	ShowHealth = true,
+	ShowTracers = false,
+	ShowPlayerTrails = true,
+	TeamCheck = false,
+
+	HighlightColor = Color3.fromRGB(0, 220, 255),
+	OutlineColor = Color3.fromRGB(255, 255, 255),
+	TrailColor = Color3.fromRGB(255, 0, 120),
+	Transparency = 0.5,
+	RainbowHighlight = false,
+	RainbowOutline = false,
+	RainbowTrail = false
+}
+
+local State = {
+	TrackedPlayers = {},
+	CurrentPage = "ESP",
+	ActiveKeyBind = nil,
+	HuePosition = 0
+}
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = generateInterfaceName()
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Name = generateInterfaceName()
+MainFrame.Size = UDim2.new(0, 640, 0, 500)
+MainFrame.Position = UDim2.new(0.5, -320, 0.5, -250)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 14, 18)
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
+
+local MainCorner = Instance.new("UICorner", MainFrame)
+MainCorner.CornerRadius = UDim.new(0, 8)
+
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Color = Color3.fromRGB(0, 220, 255)
+MainStroke.Thickness = 1
+MainStroke.Transparency = 0.7
+
+local Header = Instance.new("Frame", MainFrame)
+Header.Size = UDim2.new(1, 0, 0, 38)
+Header.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
+Header.BorderSizePixel = 0
+
+local HeaderLine = Instance.new("Frame", Header)
+HeaderLine.Size = UDim2.new(1, 0, 0, 1)
+HeaderLine.Position = UDim2.new(0, 0, 1, -1)
+HeaderLine.BackgroundColor3 = Color3.fromRGB(0, 220, 255)
+HeaderLine.BorderSizePixel = 0
+
+local TitleLabel = Instance.new("TextLabel", Header)
+TitleLabel.Size = UDim2.new(1, -100, 1, 0)
+TitleLabel.Position = UDim2.new(0, 12, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 13
+TitleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Text = "FRZ ESP v2.0"
+
+local function createHeaderButton(text, xOffset, color, callback)
+	local button = Instance.new("TextButton", Header)
+	button.Size = UDim2.new(0, 24, 0, 22)
+	button.Position = UDim2.new(1, xOffset, 0.5, -11)
+	button.BackgroundColor3 = color
+	button.Text = text
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 12
+	button.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+	local corner = Instance.new("UICorner", button)
+	corner.CornerRadius = UDim.new(0, 4)
+
+	button.MouseButton1Click:Connect(callback)
+end
+
+createHeaderButton("X", -30, Color3.fromRGB(200, 40, 50), function()
+	MainFrame.Visible = false
+	Config.GUIVisible = false
+	Config.ESPEnabled = false
+	disableESP()
+	ScreenGui:Destroy()
+end)
+
+createHeaderButton("-", -58, Color3.fromRGB(30, 36, 48), function()
+	Config.GUIVisible = false
+	MainFrame.Visible = false
+end)
+
+local isDragging = false
+local dragStartPosition = nil
+local frameStartPosition = nil
+
+Header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		isDragging = true
+		dragStartPosition = input.Position
+		frameStartPosition = MainFrame.Position
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStartPosition
+		MainFrame.Position = UDim2.new(
+			frameStartPosition.X.Scale, 
+			frameStartPosition.X.Offset + delta.X, 
+			frameStartPosition.Y.Scale, 
+			frameStartPosition.Y.Offset + delta.Y
+		)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		isDragging = false
+	end
+end)
+
+local Sidebar = Instance.new("Frame", MainFrame)
+Sidebar.Size = UDim2.new(0, 160, 1, -38)
+Sidebar.Position = UDim2.new(0, 0, 0, 38)
+Sidebar.BackgroundColor3 = Color3.fromRGB(15, 17, 22)
+Sidebar.BorderSizePixel = 0
+
+local ContentContainer = Instance.new("Frame", MainFrame)
+ContentContainer.Size = UDim2.new(1, -160, 1, -38)
+ContentContainer.Position = UDim2.new(0, 160, 0, 38)
+ContentContainer.BackgroundTransparency = 1
+
+local Pages = {}
+local NavButtons = {}
+
+local function createNavigationTab(tabId, tabName, yPosition)
+	local button = Instance.new("TextButton", Sidebar)
+	button.Size = UDim2.new(1, -16, 0, 32)
+	button.Position = UDim2.new(0, 8, 0, yPosition)
+	button.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+	button.Text = tabName
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 12
+	button.TextColor3 = Color3.fromRGB(180, 200, 220)
+
+	local corner = Instance.new("UICorner", button)
+	corner.CornerRadius = UDim.new(0, 4)
+
+	local pageFrame = Instance.new("ScrollingFrame", ContentContainer)
+	pageFrame.Size = UDim2.new(1, 0, 1, 0)
+	pageFrame.BackgroundTransparency = 1
+	pageFrame.Visible = false
+	pageFrame.ScrollBarThickness = 4
+	pageFrame.CanvasSize = UDim2.new(0, 0, 0, 1000)
+
+	Pages[tabId] = pageFrame
+	NavButtons[tabId] = button
+
+	button.MouseButton1Click:Connect(function()
+		State.CurrentPage = tabId
+		for id, page in pairs(Pages) do 
+			page.Visible = (id == tabId) 
+		end
+		for id, btn in pairs(NavButtons) do 
+			local active = (id == tabId)
+			btn.BackgroundColor3 = active and Color3.fromRGB(0, 180, 220) or Color3.fromRGB(22, 26, 36)
+			btn.TextColor3 = active and Color3.fromRGB(12, 14, 18) or Color3.fromRGB(180, 200, 220)
+		end
+	end)
+end
+
+createNavigationTab("ESP", "ESP Main", 12)
+createNavigationTab("Info", "System Info", 50)
+
+Pages["ESP"].Visible = true
+NavButtons["ESP"].BackgroundColor3 = Color3.fromRGB(0, 180, 220)
+NavButtons["ESP"].TextColor3 = Color3.fromRGB(12, 14, 18)
+
+local UserCard = Instance.new("Frame", Sidebar)
+UserCard.Size = UDim2.new(1, -16, 0, 42)
+UserCard.Position = UDim2.new(0, 8, 1, -50)
+UserCard.BackgroundColor3 = Color3.fromRGB(20, 24, 32)
+local UserCardCorner = Instance.new("UICorner", UserCard)
+UserCardCorner.CornerRadius = UDim.new(0, 4)
+
+local UserImage = Instance.new("ImageLabel", UserCard)
+UserImage.Size = UDim2.new(0, 28, 0, 28)
+UserImage.Position = UDim2.new(0, 6, 0.5, -14)
+UserImage.Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150"
+local UserImageCorner = Instance.new("UICorner", UserImage)
+UserImageCorner.CornerRadius = UDim.new(1, 0)
+
+local UserNameLabel = Instance.new("TextLabel", UserCard)
+UserNameLabel.Size = UDim2.new(1, -40, 1, 0)
+UserNameLabel.Position = UDim2.new(0, 38, 0, 0)
+UserNameLabel.BackgroundTransparency = 1
+UserNameLabel.Font = Enum.Font.GothamBold
+UserNameLabel.Text = LocalPlayer.DisplayName
+UserNameLabel.TextSize = 12
+UserNameLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
+UserNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local InfoText = Instance.new("TextLabel", Pages["Info"])
+InfoText.Size = UDim2.new(1, -30, 1, -30)
+InfoText.Position = UDim2.new(0, 15, 0, 15)
+InfoText.BackgroundTransparency = 1
+InfoText.Font = Enum.Font.SourceSansBold
+InfoText.TextColor3 = Color3.fromRGB(220, 230, 245)
+InfoText.TextXAlignment = Enum.TextXAlignment.Left
+InfoText.TextYAlignment = Enum.TextYAlignment.Top
+InfoText.TextScaled = true
+InfoText.Text = [[FRZ ESP v2.0
+
+UI & Navigation: Builds a draggable settings panel with custom tabs, buttons, and keybinds.
+
+Random Naming: Uses fake names (PlayerInventoryGui, etc.) to prevent basic detection.
+
+ESP Engine: Renders Highlight, SelectionBox, Trail, lines, and rainbow effects through walls.
+
+Overhead Stats: Displays real-time player names, distance (studs), and dynamic health color indicators.
+
+Event Loop: Automatically tracks new players and updates rainbow colors and player distances every frame.]]
+
+local currentSettingY = 12
+local RegisteredToggles = {}
+
+local function createSettingBox(label, height)
+	local h = height or 40
+	local container = Instance.new("Frame", Pages["ESP"])
+	container.Size = UDim2.new(1, -30, 0, h)
+	container.Position = UDim2.new(0, 15, 0, currentSettingY)
+	container.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
+
+	local corner = Instance.new("UICorner", container)
+	corner.CornerRadius = UDim.new(0, 4)
+
+	local title = Instance.new("TextLabel", container)
+	title.Size = UDim2.new(0.55, 0, 0, 40)
+	title.Position = UDim2.new(0, 12, 0, 0)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.SourceSansBold
+	title.TextSize = 15
+	title.TextColor3 = Color3.fromRGB(240, 245, 255)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	title.TextStrokeTransparency = 0.6
+	title.Text = label
+
+	currentSettingY = currentSettingY + h + 6
+	return container
+end
+
+local function addToggleSetting(label, getValue, onToggle)
+	local box = createSettingBox(label, 40)
+
+	local toggleBtn = Instance.new("TextButton", box)
+	toggleBtn.Size = UDim2.new(0, 42, 0, 20)
+	toggleBtn.Position = UDim2.new(1, -52, 0.5, -10)
+	toggleBtn.BackgroundColor3 = getValue() and Color3.fromRGB(0, 220, 150) or Color3.fromRGB(32, 38, 50)
+	toggleBtn.Text = ""
+
+	local btnCorner = Instance.new("UICorner", toggleBtn)
+	btnCorner.CornerRadius = UDim.new(1, 0)
+
+	local indicator = Instance.new("Frame", toggleBtn)
+	indicator.Size = UDim2.new(0, 14, 0, 14)
+	indicator.Position = getValue() and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+	indicator.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+
+	local indCorner = Instance.new("UICorner", indicator)
+	indCorner.CornerRadius = UDim.new(1, 0)
+
+	local function refreshVisuals()
+		local active = getValue()
+		TweenService:Create(toggleBtn, TweenInfo.new(0.2), {
+			BackgroundColor3 = active and Color3.fromRGB(0, 220, 150) or Color3.fromRGB(32, 38, 50)
+		}):Play()
+		TweenService:Create(indicator, TweenInfo.new(0.2), {
+			Position = active and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+		}):Play()
+	end
+
+	toggleBtn.MouseButton1Click:Connect(function() 
+		onToggle() 
+		refreshVisuals() 
+	end)
+
+	RegisteredToggles[getValue] = refreshVisuals
+end
+
+local function addDropdownSetting(label, options, getValue, setValue, onChange)
+	local box = createSettingBox(label, 40)
+
+	local button = Instance.new("TextButton", box)
+	button.Size = UDim2.new(0, 120, 0, 24)
+	button.Position = UDim2.new(1, -130, 0.5, -12)
+	button.BackgroundColor3 = Color3.fromRGB(26, 32, 44)
+	button.Text = getValue()
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 12
+	button.TextColor3 = Color3.fromRGB(0, 220, 255)
+
+	local corner = Instance.new("UICorner", button)
+	corner.CornerRadius = UDim.new(0, 4)
+
+	button.MouseButton1Click:Connect(function()
+		local current = getValue()
+		local index = table.find(options, current) or 1
+		local nextOption = options[(index % #options) + 1]
+		setValue(nextOption)
+		button.Text = nextOption
+		onChange()
+	end)
+end
+
+local function addKeybindSetting(label, getValue, setValue)
+	local box = createSettingBox(label, 40)
+
+	local button = Instance.new("TextButton", box)
+	button.Size = UDim2.new(0, 90, 0, 24)
+	button.Position = UDim2.new(1, -100, 0.5, -12)
+	button.BackgroundColor3 = Color3.fromRGB(26, 32, 44)
+	button.Text = getValue().Name
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 12
+	button.TextColor3 = Color3.fromRGB(0, 220, 255)
+
+	local corner = Instance.new("UICorner", button)
+	corner.CornerRadius = UDim.new(0, 4)
+
+	button.MouseButton1Click:Connect(function()
+		button.Text = "..."
+		State.ActiveKeyBind = {set = setValue, button = button}
+	end)
+end
+
+local function addColorPickerSetting(label, getColor, setColor, getRainbow, setRainbow)
+	local box = createSettingBox(label, 105)
+
+	local rainbowBtn = Instance.new("TextButton", box)
+	rainbowBtn.Size = UDim2.new(0, 75, 0, 24)
+	rainbowBtn.Position = UDim2.new(1, -115, 0, 8)
+	rainbowBtn.BackgroundColor3 = getRainbow() and Color3.fromRGB(0, 180, 220) or Color3.fromRGB(28, 34, 46)
+	rainbowBtn.Text = "Rainbow"
+	rainbowBtn.Font = Enum.Font.GothamBold
+	rainbowBtn.TextSize = 11
+	rainbowBtn.TextColor3 = getRainbow() and Color3.fromRGB(12, 14, 18) or Color3.fromRGB(200, 215, 235)
+	local rbCorner = Instance.new("UICorner", rainbowBtn)
+	rbCorner.CornerRadius = UDim.new(0, 4)
+
+	rainbowBtn.MouseButton1Click:Connect(function()
+		setRainbow(not getRainbow())
+		rainbowBtn.BackgroundColor3 = getRainbow() and Color3.fromRGB(0, 180, 220) or Color3.fromRGB(28, 34, 46)
+		rainbowBtn.TextColor3 = getRainbow() and Color3.fromRGB(12, 14, 18) or Color3.fromRGB(200, 215, 235)
+	end)
+
+	local colorPreview = Instance.new("Frame", box)
+	colorPreview.Size = UDim2.new(0, 24, 0, 24)
+	colorPreview.Position = UDim2.new(1, -34, 0, 8)
+	colorPreview.BackgroundColor3 = getColor()
+	local prevCorner = Instance.new("UICorner", colorPreview)
+	prevCorner.CornerRadius = UDim.new(0, 4)
+
+	local svBox = Instance.new("Frame", box)
+	svBox.Size = UDim2.new(0, 200, 0, 54)
+	svBox.Position = UDim2.new(0, 12, 0, 40)
+	svBox.BackgroundColor3 = getColor()
+	svBox.ClipsDescendants = true
+	local svCorner = Instance.new("UICorner", svBox)
+	svCorner.CornerRadius = UDim.new(0, 4)
+
+	local saturationOverlay = Instance.new("Frame", svBox)
+	saturationOverlay.Size = UDim2.new(1, 0, 1, 0)
+	saturationOverlay.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	local satGradient = Instance.new("UIGradient", saturationOverlay)
+	satGradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(1, 1)
+	})
+
+	local valueOverlay = Instance.new("Frame", svBox)
+	valueOverlay.Size = UDim2.new(1, 0, 1, 0)
+	valueOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	local valGradient = Instance.new("UIGradient", valueOverlay)
+	valGradient.Rotation = 90
+	valGradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0)
+	})
+
+	local hueBar = Instance.new("Frame", box)
+	hueBar.Size = UDim2.new(0, 18, 0, 54)
+	hueBar.Position = UDim2.new(0, 222, 0, 40)
+	hueBar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	local hueCorner = Instance.new("UICorner", hueBar)
+	hueCorner.CornerRadius = UDim.new(0, 4)
+
+	local hueGradient = Instance.new("UIGradient", hueBar)
+	hueGradient.Rotation = 90
+	hueGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 0)),
+		ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 255, 0)),
+		ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 255, 0)),
+		ColorSequenceKeypoint.new(0.50, Color3.fromRGB(0, 255, 255)),
+		ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 0, 255)),
+		ColorSequenceKeypoint.new(0.83, Color3.fromRGB(255, 0, 255)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0))
+	})
+
+	local h, s, v = getColor():ToHSV()
+
+	local function applyNewColor()
+		local resultColor = Color3.fromHSV(h, s, v)
+		svBox.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+		colorPreview.BackgroundColor3 = resultColor
+		setColor(resultColor)
+		updateAllHighlights()
+	end
+
+	local isDraggingSV = false
+	local isDraggingHue = false
+
+	svBox.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then isDraggingSV = true end
+	end)
+	hueBar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then isDraggingHue = true end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			isDraggingSV = false
+			isDraggingHue = false
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			local mousePos = UserInputService:GetMouseLocation()
+			if isDraggingSV then
+				setRainbow(false)
+				rainbowBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+				rainbowBtn.TextColor3 = Color3.fromRGB(200, 215, 235)
+
+				local relativeX = math.clamp((mousePos.X - svBox.AbsolutePosition.X) / svBox.AbsoluteSize.X, 0, 1)
+				local relativeY = math.clamp((mousePos.Y - svBox.AbsolutePosition.Y) / svBox.AbsoluteSize.Y, 0, 1)
+				s = relativeX
+				v = 1 - relativeY
+				applyNewColor()
+			elseif isDraggingHue then
+				setRainbow(false)
+				rainbowBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+				rainbowBtn.TextColor3 = Color3.fromRGB(200, 215, 235)
+
+				local relativeY = math.clamp((mousePos.Y - hueBar.AbsolutePosition.Y) / hueBar.AbsoluteSize.Y, 0, 1)
+				h = relativeY
+				applyNewColor()
+			end
+		end
+	end)
+end
+
+addToggleSetting("Enable ESP", function() return Config.ESPEnabled end, function()
+	Config.ESPEnabled = not Config.ESPEnabled
+	if Config.ESPEnabled then enableESP() else disableESP() end
+	updateAllHighlights()
+end)
+
+addDropdownSetting("ESP Render Type", {"Highlight", "SelectionBox"}, function() return Config.ESPType end, function(val) Config.ESPType = val end, function() enableESP() end)
+addDropdownSetting("Highlight Style", {"Outline", "Fill", "Both"}, function() return Config.HighlightStyle end, function(val) Config.HighlightStyle = val end, function() updateAllHighlights() end)
+
+addToggleSetting("Show Info Overlay", function() return Config.ShowInfo end, function() Config.ShowInfo = not Config.ShowInfo enableESP() end)
+addToggleSetting("Show Distance (Studs)", function() return Config.ShowDistance end, function() Config.ShowDistance = not Config.ShowDistance end)
+addToggleSetting("Show Numeric Health", function() return Config.ShowHealth end, function() Config.ShowHealth = not Config.ShowHealth end)
+addToggleSetting("Show Player Trails", function() return Config.ShowPlayerTrails end, function() Config.ShowPlayerTrails = not Config.ShowPlayerTrails enableESP() end)
+addToggleSetting("Show Tracers", function() return Config.ShowTracers end, function() Config.ShowTracers = not Config.ShowTracers end)
+addToggleSetting("Team Check (Enemies Only)", function() return Config.TeamCheck end, function() Config.TeamCheck = not Config.TeamCheck enableESP() end)
+
+addColorPickerSetting(
+	"Highlight / Box Color", 
+	function() return Config.HighlightColor end, 
+	function(color) Config.HighlightColor = color end,
+	function() return Config.RainbowHighlight end,
+	function(v) Config.RainbowHighlight = v end
+)
+
+addColorPickerSetting(
+	"Outline Color (Box Line)", 
+	function() return Config.OutlineColor end, 
+	function(color) Config.OutlineColor = color end,
+	function() return Config.RainbowOutline end,
+	function(v) Config.RainbowOutline = v end
+)
+
+addColorPickerSetting(
+	"Player Trail Color", 
+	function() return Config.TrailColor end, 
+	function(color) Config.TrailColor = color end,
+	function() return Config.RainbowTrail end,
+	function(v) Config.RainbowTrail = v end
+)
+
+addKeybindSetting("Toggle Key ESP", function() return Config.ToggleKey end, function(key) Config.ToggleKey = key end)
+addKeybindSetting("Toggle Key GUI", function() return Config.GUIToggleKey end, function(key) Config.GUIToggleKey = key end)
+
+local function clearPlayerVisuals(character)
+	if State.TrackedPlayers[character] then
+		for _, visualObject in pairs(State.TrackedPlayers[character]) do
+			if typeof(visualObject) == "Instance" then 
+				visualObject:Destroy() 
+			elseif typeof(visualObject) == "table" then
+				for _, subObject in pairs(visualObject) do
+					if typeof(subObject) == "Instance" then subObject:Destroy() end
+				end
+			end
+		end
+		State.TrackedPlayers[character] = nil
+	end
+end
+
+function createHighlight(character, targetPlayer)
+	clearPlayerVisuals(character)
+
+	if Config.TeamCheck and targetPlayer.Team and LocalPlayer.Team and targetPlayer.Team == LocalPlayer.Team then
+		return
+	end
+
+	local playerTrackData = {}
+
+	if Config.ESPType == "Highlight" then
+		local highlight = Instance.new("Highlight")
+		highlight.Name = generateInterfaceName()
+		highlight.Adornee = character
+		highlight.OutlineTransparency = (Config.HighlightStyle == "Fill") and 1 or 0
+		highlight.FillTransparency = (Config.HighlightStyle == "Outline") and 1 or Config.Transparency
+		highlight.OutlineColor = Config.OutlineColor
+		highlight.FillColor = Config.HighlightColor
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Parent = character
+		playerTrackData.Highlight = highlight
+
+	elseif Config.ESPType == "SelectionBox" then
+		playerTrackData.Boxes = {}
+		for _, part in pairs(character:GetChildren()) do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+				local boxAdornment = Instance.new("BoxHandleAdornment")
+				boxAdornment.Name = generateInterfaceName()
+				boxAdornment.Adornee = part
+				boxAdornment.Size = part.Size + Vector3.new(0.05, 0.05, 0.05)
+				boxAdornment.Color3 = Config.OutlineColor
+				boxAdornment.Transparency = (Config.HighlightStyle == "Outline") and 1 or Config.Transparency
+				boxAdornment.AlwaysOnTop = true
+				boxAdornment.ZIndex = 5
+				boxAdornment.Parent = part
+
+				table.insert(playerTrackData.Boxes, boxAdornment)
+			end
+		end
+	end
+
+	if Config.ShowPlayerTrails and character:FindFirstChild("HumanoidRootPart") then
+		local rootPart = character.HumanoidRootPart
+
+		local attachment0 = Instance.new("Attachment", rootPart)
+		attachment0.Position = Vector3.new(-0.4, -2.8, 0)
+
+		local attachment1 = Instance.new("Attachment", rootPart)
+		attachment1.Position = Vector3.new(0.4, -2.8, 0)
+
+		local trail = Instance.new("Trail")
+		trail.Name = generateInterfaceName()
+		trail.Attachment0 = attachment0
+		trail.Attachment1 = attachment1
+		trail.Lifetime = 1.2
+		trail.MinLength = 0.1
+		trail.Color = ColorSequence.new(Config.TrailColor)
+		trail.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.2),
+			NumberSequenceKeypoint.new(1, 1)
+		})
+		trail.Parent = rootPart
+
+		playerTrackData.Trail = trail
+		playerTrackData.Attachment0 = attachment0
+		playerTrackData.Attachment1 = attachment1
+	end
+
+	if Config.ShowInfo and character:FindFirstChild("Head") then
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = generateInterfaceName()
+		billboard.Adornee = character.Head
+		billboard.Size = UDim2.new(0, 160, 0, 50)
+		billboard.StudsOffset = Vector3.new(0, 2.8, 0)
+		billboard.AlwaysOnTop = true
+		billboard.MaxDistance = math.huge
+
+		local function createCleanTextLabel(parent, size, pos, fontSize, defaultColor)
+			local label = Instance.new("TextLabel", parent)
+			label.Size = size
+			label.Position = pos
+			label.BackgroundTransparency = 1
+			label.Font = Enum.Font.SourceSansBold
+			label.TextSize = fontSize
+			label.TextColor3 = defaultColor
+			label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			label.TextStrokeTransparency = 0
+			return label
+		end
+
+		local nameLabel = createCleanTextLabel(billboard, UDim2.new(1, 0, 0, 15), UDim2.new(0, 0, 0, 0), 14, Color3.fromRGB(255, 255, 255))
+		nameLabel.Text = targetPlayer.DisplayName
+
+		local distanceLabel = createCleanTextLabel(billboard, UDim2.new(1, 0, 0, 14), UDim2.new(0, 0, 0, 16), 13, Color3.fromRGB(0, 220, 255))
+		distanceLabel.Name = "DistanceLabel"
+		distanceLabel.Text = "0 studs"
+
+		local healthLabel = createCleanTextLabel(billboard, UDim2.new(1, 0, 0, 14), UDim2.new(0, 0, 0, 31), 13, Color3.fromRGB(0, 255, 120))
+		healthLabel.Name = "HealthLabel"
+		healthLabel.Text = "100 HP"
+
+		billboard.Parent = character
+		playerTrackData.Billboard = billboard
+	end
+
+	if Config.ShowTracers and character:FindFirstChild("HumanoidRootPart") then
+		local tracerLine = Instance.new("LineHandleAdornment")
+		tracerLine.Name = generateInterfaceName()
+		tracerLine.Length = 0
+		tracerLine.Thickness = 2
+		tracerLine.Color3 = Config.HighlightColor
+		tracerLine.AlwaysOnTop = true
+		tracerLine.Adornee = character.HumanoidRootPart
+		tracerLine.Parent = character
+
+		playerTrackData.Tracer = tracerLine
+	end
+
+	State.TrackedPlayers[character] = playerTrackData
+end
+
+function enableESP()
+	disableESP()
+	if not Config.ESPEnabled then return end
+	for _, player in pairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			createHighlight(player.Character, player)
+		end
+	end
+end
+
+function disableESP()
+	for character, _ in pairs(State.TrackedPlayers) do
+		clearPlayerVisuals(character)
+	end
+	State.TrackedPlayers = {}
+end
+
+function updateAllHighlights()
+	if not Config.ESPEnabled then return end
+	for character, trackData in pairs(State.TrackedPlayers) do
+		if trackData.Highlight then
+			trackData.Highlight.OutlineTransparency = (Config.HighlightStyle == "Fill") and 1 or 0
+			trackData.Highlight.FillTransparency = (Config.HighlightStyle == "Outline") and 1 or Config.Transparency
+			trackData.Highlight.OutlineColor = Config.OutlineColor
+			trackData.Highlight.FillColor = Config.HighlightColor
+		end
+		if trackData.Boxes then
+			for _, box in pairs(trackData.Boxes) do
+				box.Color3 = Config.OutlineColor
+				box.Transparency = (Config.HighlightStyle == "Outline") and 1 or Config.Transparency
+			end
+		end
+		if trackData.Trail then
+			trackData.Trail.Color = ColorSequence.new(Config.TrailColor)
+		end
+		if trackData.Tracer then
+			trackData.Tracer.Color3 = Config.HighlightColor
+		end
+	end
+end
+
+local function setupPlayerListeners(player)
+	if player ~= LocalPlayer then
+		player.CharacterAdded:Connect(function(char)
+			if Config.ESPEnabled then
+				task.wait(0.5)
+				createHighlight(char, player)
+			end
+		end)
+		if player.Character and Config.ESPEnabled then 
+			createHighlight(player.Character, player) 
+		end
+	end
+end
+
+for _, player in pairs(Players:GetPlayers()) do setupPlayerListeners(player) end
+Players.PlayerAdded:Connect(setupPlayerListeners)
+Players.PlayerRemoving:Connect(function(player)
+	if player.Character then clearPlayerVisuals(player.Character) end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if State.ActiveKeyBind and input.UserInputType == Enum.UserInputType.Keyboard then
+		State.ActiveKeyBind.set(input.KeyCode)
+		State.ActiveKeyBind.button.Text = input.KeyCode.Name
+		State.ActiveKeyBind = nil
+		return
+	end
+	if input.KeyCode == Config.ToggleKey then
+		Config.ESPEnabled = not Config.ESPEnabled
+		if Config.ESPEnabled then enableESP() else disableESP() end
+		for _, refreshFunc in pairs(RegisteredToggles) do refreshFunc() end
+	elseif input.KeyCode == Config.GUIToggleKey then
+		Config.GUIVisible = not Config.GUIVisible
+		MainFrame.Visible = Config.GUIVisible
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	State.HuePosition = (State.HuePosition + 0.003) % 1
+	local currentRainbowColor = Color3.fromHSV(State.HuePosition, 0.9, 1)
+
+	local needsUpdate = false
+
+	if Config.RainbowHighlight then
+		Config.HighlightColor = currentRainbowColor
+		needsUpdate = true
+	end
+	if Config.RainbowOutline then
+		Config.OutlineColor = currentRainbowColor
+		needsUpdate = true
+	end
+	if Config.RainbowTrail then
+		Config.TrailColor = currentRainbowColor
+		needsUpdate = true
+	end
+
+	if needsUpdate then
+		updateAllHighlights()
+	end
+
+	if not Config.ESPEnabled then return end
+
+	local myCharacter = LocalPlayer.Character
+	local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+
+	for character, trackData in pairs(State.TrackedPlayers) do
+		if character and character.Parent then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			local rootPart = character:FindFirstChild("HumanoidRootPart")
+
+			if trackData.Billboard and humanoid and rootPart and myRoot then
+				local distLabel = trackData.Billboard:FindFirstChild("DistanceLabel")
+				if distLabel then
+					if Config.ShowDistance then
+						local distance = math.floor((myRoot.Position - rootPart.Position).Magnitude)
+						distLabel.Text = tostring(distance) .. " studs"
+						distLabel.Visible = true
+					else
+						distLabel.Visible = false
+					end
+				end
+
+				local hpLabel = trackData.Billboard:FindFirstChild("HealthLabel")
+				if hpLabel then
+					if Config.ShowHealth then
+						hpLabel.Visible = true
+						local currentHp = math.floor(humanoid.Health)
+						local percentHp = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+						hpLabel.Text = string.format("%d HP / %d%%", currentHp, percentHp)
+
+						if percentHp > 60 then
+							hpLabel.TextColor3 = Color3.fromRGB(0, 255, 120)
+						elseif percentHp > 30 then
+							hpLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+						else
+							hpLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+						end
+					else
+						hpLabel.Visible = false
+					end
+				end
+			end
+		else
+			clearPlayerVisuals(character)
+		end
+	end
+end)
